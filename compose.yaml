@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: backend/.env
+    environment:
+      APP_ENV: production
+      APP_MODE: live
+    volumes:
+      - backend-data:/srv/.data
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Publication journals and locks require exactly one worker and one replica.
+    deploy:
+      replicas: 1
+  frontend:
+    build:
+      context: .
+      args:
+        BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 512m
+volumes:
+  backend-data:

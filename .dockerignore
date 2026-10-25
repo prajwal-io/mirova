@@ -1,0 +1,15 @@
+node_modules
+.next
+.next-test
+.next-build
+.git
+.env*
+backend/.env*
+backend/.venv
+.data
+.impeccable
+test-results
+__pycache__
+**/__pycache__
+.pytest_cache
+*.log

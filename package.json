@@ -1,0 +1,41 @@
+{
+  "name": "mirova",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "next build",
+    "start": "node scripts/dev.mjs --production",
+    "typecheck": "tsc --noEmit",
+    "eval": "tsx scripts/evaluate.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "dev:demo": "node scripts/dev.mjs --demo",
+    "dev:frontend": "next dev --hostname 127.0.0.1",
+    "test:frontend": "node scripts/test-frontend-regressions.mjs",
+    "test:workflow": "tsx scripts/test-workspace-features.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0",
+    "lucide-react": "1.61.0",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "jszip": "3.10.2",
+    "pdf-lib": "1.17.1",
+    "playwright": "1.64.1",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  },
+  "private": true
+}

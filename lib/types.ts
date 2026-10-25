@@ -1,0 +1,11 @@
+export type Source = { id:string; title:string; kind:'board'|'document'; text:string; updatedAt:string; itemCount:number; boardId?:string; url?:string; tags:string[]; hash?:string; };
+export type Chunk = {id:string; sourceId:string; content:string; embedding?:number[]; similarity?:number};
+export type Citation = {id:number; sourceId:string; title:string; excerpt:string; url?:string};
+export type Step = {title:string; description:string; phase:string; owner?:string; deadline?:string; done?:boolean};
+export type Plan = {id:string; title:string; status:'draft'|'published'; boardId?:string; publishedItemIds?:string[]; publishedConnectorIds?:string[]; steps:Step[]; createdAt:string; sourceIds:string[]};
+export type ChatMessage = {role:'user'|'assistant';text:string;citations?:Citation[]};
+export type Conversation = {id:string;title:string;messages:ChatMessage[];sourceIds:string[];updatedAt:string;author:string};
+export type TeamComment = {id:string;targetId:string;text:string;author:string;authorId:string;createdAt:string};
+export type Task = {id:string;title:string;owner:string;deadline:string;done:boolean;createdAt:string};
+export type Insights = {themes:{id:string;label:string;summary:string;sourceIds:string[]}[];gaps:{title:string;description:string;sourceIds:string[]}[];conflicts:{title:string;description:string;sourceIds:string[]}[];generatedAt:string;fingerprint:string};
+export type Workspace = {sources:Source[]; chunks:Chunk[]; plans:Plan[]; activity:{id:string; text:string; time:string}[];conversations?:Conversation[];comments?:TeamComment[];tasks?:Task[];teamName?:string;settings?:{autoSync:boolean;intervalMinutes:number;lastSyncAt?:string};insights?:Insights};

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T10:03:43.389769+00:00",
+  "title": "Design System: Mirova",
+  "extensions": {
+    "gradients": [
+      {
+        "name": "sunset",
+        "value": "linear-gradient(115deg, #ffd2a0, #f6ac89 58%, #d5b0dc)",
+        "purpose": "Primary controls and signature accents; explicitly requested by user."
+      }
+    ],
+    "shadows": [
+      {
+        "name": "sunset-glow",
+        "value": "0 8px 32px #f3a07326",
+        "purpose": "Warm ambient light beneath primary controls."
+      },
+      {
+        "name": "sunset-hover",
+        "value": "0 8px 35px #e9a67542",
+        "purpose": "Primary hover emphasis."
+      },
+      {
+        "name": "dialog",
+        "value": "0 20px 90px #0007, 0 0 60px #cc874813",
+        "purpose": "Structural dialog depth."
+      }
+    ],
+    "motion": [
+      {
+        "name": "button-state",
+        "value": "color .2s, background .2s, border-color .2s, box-shadow .25s, transform .25s",
+        "purpose": "Interactive feedback."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation:none!important;transition:none!important;scroll-behavior:auto!important",
+        "purpose": "Applied to all elements and pseudo-elements when prefers-reduced-motion:reduce."
+      },
+      {
+        "name": "sync-switch",
+        "value": "200ms",
+        "purpose": "Sync-switch background and thumb translation; preserve keyboard focus visibility."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "min-width:1500px"
+      },
+      {
+        "name": "compact-desktop",
+        "value": "max-width:1190px"
+      },
+      {
+        "name": "hide-overview-copilot",
+        "value": "max-width:1010px"
+      },
+      {
+        "name": "mobile",
+        "value": "max-width:740px"
+      },
+      {
+        "name": "auth-compact",
+        "value": "max-width:1000px"
+      },
+      {
+        "name": "research-compact",
+        "value": "1200px"
+      },
+      {
+        "name": "research-stacked",
+        "value": "1000px"
+      },
+      {
+        "name": "research-mobile",
+        "value": "740px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Sunset primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "User-selected peach, coral and lilac gradient with subtle warm glow.",
+      "html": "<button class=\"ds-primary\">Import &amp; index</button>",
+      "css": ".ds-primary{font:600 12px Instrument Sans,Arial,sans-serif;min-height:37px;padding:8px 12px;border:1px solid transparent;border-radius:8px;color:#342015;background:var(--sunset,linear-gradient(115deg,#ffd2a0,#f6ac89 58%,#d5b0dc));box-shadow:var(--glow,0 8px 32px #f3a07326);cursor:pointer;transition:box-shadow .25s,transform .25s}.ds-primary:hover{color:#291b13;background:linear-gradient(110deg,#ffdfb5,#ffb993 60%,#dfc2e8);box-shadow:0 8px 35px #e9a67542;transform:translateY(-1px)}.ds-primary:active{transform:translateY(0)}.ds-primary:focus-visible{outline:2px solid #ffd1a0;outline-offset:4px}.ds-primary:disabled{box-shadow:none;transform:none}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none!important;animation:none!important}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Espresso at Sunset",
+    "overview": "User-selected dark espresso with warm sunset glow. Retro gradients and subtle glows are explicit requirements. Bricolage Grotesque headings, Instrument Sans working text and Instrument Serif auth accents support a compact research workspace.",
+    "keyCharacteristics": [
+      "Espresso surfaces and warm cream text",
+      "Peach, amber and lilac gradient actions",
+      "Subtle ambient glow",
+      "Mobile sign-in form precedes decoration"
+    ],
+    "rules": [
+      {
+        "name": "Sunset requirement",
+        "body": "Preserve the user-requested retro gradients and warm glows.",
+        "section": "elevation"
+      },
+      {
+        "name": "Working text",
+        "body": "Miniature board illustration text is not a working typography token.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Use the final retro.css cascade as theme authority.",
+      "Keep source inspection and explicit approval legible.",
+      "Honor reduced-motion preferences.",
+      "Do extend the espresso and sunset system for saved chats, insights, sync, team forms, discussions, and roadmap ownership; keep labels, evidence links, metadata, and selected states readable at stacked breakpoints."
+    ],
+    "donts": [
+      "Do not restore the previous sage and warm-light palette.",
+      "Do not rebuild functional layouts as full-page decorative specimens."
+    ]
+  }
+}
