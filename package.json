@@ -7,12 +7,12 @@
     "build": "next build",
     "start": "node scripts/dev.mjs --production",
     "typecheck": "tsc --noEmit",
-    "eval": "tsx scripts/evaluate.ts",
-    "smoke": "node scripts/smoke.mjs",
+    "eval": "tsx tests/evaluation/retrieval.ts",
+    "smoke": "node tests/e2e/smoke.mjs",
     "dev:demo": "node scripts/dev.mjs --demo",
     "dev:frontend": "next dev --hostname 127.0.0.1",
-    "test:frontend": "node scripts/test-frontend-regressions.mjs",
-    "test:workflow": "tsx scripts/test-workspace-features.ts"
+    "test:frontend": "node tests/e2e/frontend-regressions.mjs",
+    "test:workflow": "tsx tests/e2e/workspace-features.ts"
   },
   "keywords": [],
   "author": "",

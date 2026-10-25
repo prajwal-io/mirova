@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
-import {seed} from '../lib/seed';
-import {chunkSource} from '../lib/rag';
+import {seed} from '../../lib/seed';
+import {chunkSource} from '../../lib/rag';
 import {chromium} from 'playwright';
-import type {Plan} from '../lib/types';
+import type {Plan} from '../../lib/types';
 const base='http://localhost:3001';
 await mkdir('.data/preview',{recursive:true});const clean=seed();clean.chunks=clean.sources.flatMap(chunkSource);await writeFile('.data/preview/workspace.json',JSON.stringify(clean,null,2));
 async function call(path:string,body?:unknown){const isForm=body instanceof FormData;const r=await fetch(`${base}/api/${path}`,{method:body?'POST':'GET',headers:body&&!isForm?{'Content-Type':'application/json'}:undefined,body:body?(isForm?body:JSON.stringify(body)):undefined});const result=await r.json();if(!r.ok)throw new Error(result.error);return result;}

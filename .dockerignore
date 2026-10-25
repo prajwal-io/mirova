@@ -9,6 +9,12 @@ backend/.venv
 .data
 .impeccable
 test-results
+docs
+scripts
+tests
+supabase
+DESIGN.md
+AGENTS.md
 __pycache__
 **/__pycache__
 .pytest_cache
