@@ -2,7 +2,7 @@
 from pathlib import Path
 from dotenv import dotenv_values
 
-root = Path(__file__).resolve().parents[1]
+root = Path(__file__).resolve().parents[2]
 values = dotenv_values(root / 'backend/.env')
 private = [str(values[k]).encode() for k in ('GEMINI_API_KEY', 'MIRO_ACCESS_TOKEN', 'MIRO_CLIENT_SECRET') if values.get(k)]
 if not private:

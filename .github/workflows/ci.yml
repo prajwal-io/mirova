@@ -30,7 +30,11 @@ jobs:
           done
           cat /tmp/mirova-preview.log
           exit 1
+        env:
+          DEMO_DATA_DIR: .data/ci-preview
       - run: npm run test:frontend
         env:
           FRONTEND_TEST_URL: http://localhost:3001
       - run: npm run test:workflow
+        env:
+          DEMO_DATA_DIR: .data/ci-preview

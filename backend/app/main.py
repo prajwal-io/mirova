@@ -35,6 +35,7 @@ def create_app(settings=None, transport=None):
     settings = settings or Settings()
     rates = {}
     parser = DocumentParser()
+    upload_slot = asyncio.Semaphore(1)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -118,28 +119,29 @@ def create_app(settings=None, transport=None):
             raise AppError('Not found', 404)
 
         if path == 'upload':
-            content = await bounded(request, 11 * 1024 * 1024)
-            async def stream():
-                yield content
-            try:
-                form = await MultiPartParser(request.headers, stream(), max_files=1, max_fields=2, max_part_size=11 * 1024 * 1024).parse()
-            except Exception:
-                raise AppError('Invalid multipart upload.') from None
-            try:
-                file = form.get('file')
-                if not isinstance(file, UploadFile):
-                    raise AppError('Choose a file to upload.')
-                parsed = await parser.extract(file.filename or '', await file.read())
-                parsed['title'] = text(form.get('title'), 160) or parsed['title']
-                async with store.locked(ctx.workspace_id):
-                    workspace = await store.read(ctx)
-                    source = {'id': str(uuid4()), **parsed, 'kind': 'document', 'updatedAt': now(), 'itemCount': 1, 'tags': ['Uploaded', (file.filename or '').rsplit('.', 1)[-1].upper()]}
-                    await store.index(ctx, workspace, source)
-                    workspace['activity'].insert(0, {'id': str(uuid4()), 'text': f"{source['title']} imported", 'time': source['updatedAt']})
-                    await store.write(ctx, workspace)
-                    return {'source': source}
-            finally:
-                await form.close()
+            async with upload_slot:
+                content = await bounded(request, 11 * 1024 * 1024)
+                async def stream():
+                    yield content
+                try:
+                    form = await MultiPartParser(request.headers, stream(), max_files=1, max_fields=2, max_part_size=11 * 1024 * 1024).parse()
+                except Exception:
+                    raise AppError('Invalid multipart upload.') from None
+                try:
+                    file = form.get('file')
+                    if not isinstance(file, UploadFile):
+                        raise AppError('Choose a file to upload.')
+                    parsed = await parser.extract(file.filename or '', await file.read())
+                    parsed['title'] = text(form.get('title'), 160) or parsed['title']
+                    async with store.locked(ctx.workspace_id):
+                        workspace = await store.read(ctx)
+                        source = {'id': str(uuid4()), **parsed, 'kind': 'document', 'updatedAt': now(), 'itemCount': 1, 'tags': ['Uploaded', (file.filename or '').rsplit('.', 1)[-1].upper()]}
+                        await store.index(ctx, workspace, source)
+                        workspace['activity'].insert(0, {'id': str(uuid4()), 'text': f"{source['title']} imported", 'time': source['updatedAt']})
+                        await store.write(ctx, workspace)
+                        return {'source': source}
+                finally:
+                    await form.close()
         if not request.headers.get('content-type', '').lower().startswith('application/json'):
             raise AppError('Send an application/json request.', 415)
         try:
@@ -162,21 +164,42 @@ def create_app(settings=None, transport=None):
                 workspace['activity'].insert(0, {'id': str(uuid4()), 'text': f"{source['title']} imported", 'time': source['updatedAt']})
                 await store.write(ctx, workspace)
                 return {'source': source}
-            if path == 'sync':
-                if body.get('board'):
-                    result = await services.sync_board(ctx, workspace, body['board'])
-                    await store.write(ctx, workspace)
-                    return result
-                boards = [s for s in workspace['sources'] if s.get('boardId')]
-                changed, errors = 0, []
-                for board in boards:
-                    try:
-                        changed += (await services.sync_board(ctx, workspace, board['boardId']))['changed']
-                    except AppError as error:
-                        errors.append(f"{board['title']}: {error.message}")
-                workspace['settings'] = {**workspace.get('settings', {'autoSync': False, 'intervalMinutes': 5}), 'lastSyncAt': now()}
+            if path == 'sources/delete':
+                source_id = text(body.get('id'), 200)
+                source = next((s for s in workspace['sources'] if s['id'] == source_id), None)
+                if not source:
+                    raise AppError('Source not found.', 404)
+                workspace['sources'] = [s for s in workspace['sources'] if s['id'] != source_id]
+                workspace['chunks'] = [c for c in workspace.get('chunks', []) if c.get('sourceId') != source_id]
+                for plan in workspace.get('plans', []):
+                    plan['sourceIds'] = [sid for sid in plan.get('sourceIds', []) if sid != source_id]
+                workspace['conversations'] = [c for c in workspace.get('conversations', []) if not any(citation.get('sourceId') == source_id for message in c.get('messages', []) for citation in message.get('citations', []))]
+                workspace['comments'] = [c for c in workspace.get('comments', []) if c.get('targetId') != source_id]
+                workspace['insights'] = None
+                workspace['activity'].insert(0, {'id': str(uuid4()), 'text': f"{source['title']} removed", 'time': now()})
+                if settings.live:
+                    ctx.pending.append({'sourceId': source_id, 'chunks': []})
                 await store.write(ctx, workspace)
-                return {'changed': changed, 'errors': errors, 'message': f'{len(boards)} board(s) checked, {changed} updated.' if boards else 'No connected Miro boards yet. Import a board to enable automatic sync.'}
+                return {'ok': True}
+            if path == 'sync':
+                try:
+                    async with asyncio.timeout(110):
+                        if body.get('board'):
+                            result = await services.sync_board(ctx, workspace, body['board'])
+                            await store.write(ctx, workspace)
+                            return result
+                        boards = [s for s in workspace['sources'] if s.get('boardId')]
+                        changed, errors = 0, []
+                        for board in boards:
+                            try:
+                                changed += (await services.sync_board(ctx, workspace, board['boardId']))['changed']
+                            except AppError as error:
+                                errors.append(f"{board['title']}: {error.message}")
+                        workspace['settings'] = {**workspace.get('settings', {'autoSync': False, 'intervalMinutes': 5}), 'lastSyncAt': now()}
+                        await store.write(ctx, workspace)
+                        return {'changed': changed, 'errors': errors, 'message': f'{len(boards)} board(s) checked, {changed} updated.' if boards else 'No connected Miro boards yet. Import a board to enable automatic sync.'}
+                except TimeoutError:
+                    raise AppError('Miro sync exceeded its 110-second limit. Sync boards individually.', 504) from None
             if path == 'plans':
                 selected = selected_ids(body, workspace)
                 sources = [s for s in workspace['sources'] if not selected or s['id'] in selected]

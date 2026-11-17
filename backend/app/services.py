@@ -91,16 +91,25 @@ class Services:
     async def sync_board(self, ctx, workspace, value):
         board = board_id(value)
         self.authorize_miro(ctx, board)
-        meta = await self.providers.miro(f'boards/{quote(board, safe="")}')
+        try:
+            async with asyncio.timeout(8):
+                meta = await self.providers.miro(f'boards/{quote(board, safe="")}')
+        except TimeoutError:
+            raise AppError('Miro sync timed out. Try again or import a smaller board.', 504) from None
         items, cursors, cursor = [], set(), ''
-        for _ in range(101):
-            page = await self.providers.miro(f'boards/{quote(board, safe="")}/items?limit=50' + (f'&cursor={quote(cursor, safe="")}' if cursor else ''))
+        # shortcut: 500 items fits the interactive request budget; use a background sync for larger boards.
+        for _ in range(10):
+            try:
+                async with asyncio.timeout(8):
+                    page = await self.providers.miro(f'boards/{quote(board, safe="")}/items?limit=50' + (f'&cursor={quote(cursor, safe="")}' if cursor else ''))
+            except TimeoutError:
+                raise AppError('Miro sync timed out. Try again or import a smaller board.', 504) from None
             data = page.get('data')
             if not isinstance(data, list):
                 raise AppError('Miro returned invalid board data.', 502)
             items.extend(data)
-            if len(items) > 5000:
-                raise AppError('Board exceeds the 5,000 item import limit.')
+            if len(items) > 500:
+                raise AppError('Board exceeds the 500-item sync limit. Import a smaller board.')
             cursor = page.get('cursor') or ''
             if not cursor:
                 break
@@ -108,7 +117,7 @@ class Services:
                 raise AppError('Miro pagination repeated a cursor. Please retry.', 502)
             cursors.add(cursor)
         else:
-            raise AppError('Board exceeds the pagination limit.')
+            raise AppError('Board exceeds the 500-item sync limit. Import a smaller board.')
         lines = []
         for item in sorted(items, key=lambda x: str(x.get('id', ''))):
             data = item.get('data') or {}

@@ -1,10 +1,11 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-import {mkdir,readFile,writeFile} from 'node:fs/promises';
-async function cleanup(){try{const p='.data/workspace.json';const w=JSON.parse(await readFile(p,'utf8'));const ids=w.sources.filter(s=>s.title==='Smoke test research').map(s=>s.id);w.sources=w.sources.filter(s=>!ids.includes(s.id));w.chunks=w.chunks.filter(c=>!ids.includes(c.sourceId));w.plans=w.plans.filter(p=>!p.sourceIds.some(id=>ids.includes(id)));w.activity=w.activity.filter(a=>!a.text.includes('Smoke test research')&&!a.text.includes('Draft roadmap created from 1 sources')&&a.text!=='Roadmap approved in local demo');await writeFile(p,JSON.stringify(w,null,2));}catch(e){if(e.code!=='ENOENT')throw e;}}
-await cleanup();
+import {mkdir} from 'node:fs/promises';
+const testTitle=`Smoke test research ${Date.now()}`;
+async function cleanup(){const response=await fetch('http://localhost:3000/api/workspace');if(!response.ok)return;const workspace=await response.json();for(const source of workspace.sources.filter(s=>s.title===testTitle))await fetch('http://localhost:3000/api/sources/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:source.id})});}
 await mkdir('test-results',{recursive:true});
-const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+let browser;try{
+browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.goto('http://localhost:3000');
@@ -13,11 +14,11 @@ await page.screenshot({path:'test-results/desktop.png',fullPage:true});
 assert.equal(await page.locator('body').evaluate(el=>el.scrollWidth>innerWidth),false);
 await page.getByRole('button',{name:'Knowledge library',exact:true}).click();
 await page.getByRole('button',{name:'Add source',exact:true}).click();
-await page.getByPlaceholder('e.g. Discovery workshop notes').fill('Smoke test research');
+await page.getByPlaceholder('e.g. Discovery workshop notes').fill(testTitle);
 await page.getByPlaceholder('Or paste your research here…').fill('Quantum mango onboarding study. The team agreed that every pilot needs an accessibility review, a named owner, and a rollback plan.');
 await page.getByRole('button',{name:'Import & index',exact:true}).click();
-await page.getByRole('button',{name:/Smoke test research/}).waitFor();
-await page.getByRole('button',{name:/Smoke test research/}).click();
+await page.getByRole('button',{name:new RegExp(testTitle)}).waitFor();
+await page.getByRole('button',{name:new RegExp(testTitle)}).click();
 await page.getByRole('button',{name:'Ask about this source',exact:true}).click();
 await page.getByRole('textbox',{name:'Ask your workspace',exact:true}).fill('What does quantum mango onboarding need?');
 await page.getByRole('button',{name:'Send question',exact:true}).click();
@@ -54,6 +55,5 @@ assert.deepEqual(errors,[]);
 const invalid=await page.request.post('http://localhost:3000/api/sources',{data:{title:'',text:''}});assert.equal(invalid.status(),400);assert.match((await invalid.json()).error,/required/);
 const approval=await page.request.post('http://localhost:3000/api/publish',{data:{approved:false,id:'fake'}});assert.equal(approval.status(),400);assert.match((await approval.json()).error,/approve/);
 const crossOrigin=await page.request.post('http://localhost:3000/api/sources',{headers:{Origin:'https://untrusted.example'},data:{title:'Bad request',text:'Untrusted'}});assert.equal(crossOrigin.status(),400);
-await browser.close();
-await cleanup();
 console.log('PASS import → source inspection → scoped cited answer → editable roadmap → approval gate → local publish; search, mobile navigation, no overflow, no browser exceptions.');
+}finally{await browser?.close();await cleanup();}

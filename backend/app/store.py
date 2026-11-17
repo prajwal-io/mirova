@@ -125,6 +125,10 @@ class Store:
 
     async def index(self, ctx, workspace, source):
         previous = next((s for s in workspace['sources'] if s['id'] == source['id']), None)
+        source_count = len(workspace['sources']) - bool(previous)
+        source_chars = sum(len(s.get('text', '')) for s in workspace['sources'] if s['id'] != source['id'])
+        if source_count >= 100 or source_chars + len(source.get('text', '')) > 2_000_000:
+            raise AppError('Workspace source limit reached (100 sources or 2,000,000 characters). Remove sources before importing more.')
         source['hash'] = fingerprint(source['text'])
         if previous and previous.get('hash') == source['hash']:
             return False

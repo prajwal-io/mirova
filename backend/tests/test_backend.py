@@ -49,11 +49,18 @@ def test_full_workspace_workflow(client):
     assert client.post('/api/tasks/update', json={'id': task['id'], 'done': True}).status_code == 200
     assert client.post('/api/settings', json={'autoSync': True, 'intervalMinutes': 1}).status_code == 200
     assert client.post('/api/sync', json={}).status_code == 200
+    client.post('/api/chat', json={'question': 'What is the pilot plan?', 'sourceIds': [source['id']]})
     assert client.get('/api/team').json()['members']
     assert client.post('/api/team/invite', json={}).status_code == 403
     assert client.post('/api/team/rename', json={'name': 'Research studio'}).status_code == 200
     assert client.post('/api/conversations/delete', json={'id': answer['conversation']['id']}).status_code == 200
-    assert not client.get('/api/workspace').json()['conversations']
+    assert answer['conversation']['id'] not in {c['id'] for c in client.get('/api/workspace').json()['conversations']}
+    chunks_before_delete = client.get('/api/workspace').json()['chunkCount']
+    assert client.post('/api/sources/delete', json={'id': source['id']}).status_code == 200
+    removed = client.get('/api/workspace').json()
+    assert source['id'] not in {s['id'] for s in removed['sources']}
+    assert removed['chunkCount'] == chunks_before_delete - 1
+    assert not removed['conversations']
 
 def test_production_disables_demo_and_documentation(tmp_path):
     demo = configuration(tmp_path)
@@ -62,6 +69,7 @@ def test_production_disables_demo_and_documentation(tmp_path):
         demo.validate()
     live = configuration(tmp_path, True)
     live.environment = 'production'
+    live.origins = {'https://mirova.example'}
     with TestClient(create_app(live)) as client:
         assert client.get('/api/health').json()['backend'] == 'fastapi'
         assert client.get('/api/docs').status_code == 404
@@ -83,6 +91,11 @@ def test_bounds_origins_validation_and_secrets(client):
         with pytest.raises(AppError):
             valid_steps([{'title': 't', 'description': 'd', 'phase': phase}])
     assert deadline('2028-02-29') == '2028-02-29'
+    production = configuration(ROOT / '.data', True)
+    production.environment = 'production'
+    production.origins = {'http://localhost:3000'}
+    with pytest.raises(RuntimeError, match='ALLOWED_ORIGINS'):
+        production.validate()
 
 def test_grouped_citations_become_clickable_and_unknown_ids_are_rejected():
     assert normalize_citations('Evidence [1, 2] and [3].', 3) == 'Evidence [1] [2] and [3].'
@@ -144,6 +157,82 @@ async def test_auth_jwt_forwarding_membership_and_cas(tmp_path):
         assert error.value.status == 401
 
 @pytest.mark.asyncio
+async def test_supabase_source_save_rpc_clears_deleted_vectors(tmp_path):
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        assert request.headers['apikey'] == 'sb_publishable_test'
+        assert request.headers['authorization'] == 'Bearer user-jwt'
+        return httpx.Response(200, json=5)
+    settings = configuration(tmp_path, True)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        store = Store(settings, http, None)
+        ctx = Context('user', 'user', 'Research', 'user-jwt', revision=4, exists=True,
+            pending=[{'sourceId': 'miro-board', 'chunks': []}])
+        await store.write(ctx, {'sources': [], 'chunks': [], 'plans': [], 'activity': []})
+    request = calls[0]
+    assert request.url.path.endswith('/rest/v1/rpc/save_workspace_sources')
+    body = json.loads(request.content)
+    assert body['p_expected_revision'] == 4
+    assert body['p_sources'] == [{'sourceId': 'miro-board', 'chunks': []}]
+    assert body['p_data']['chunks'] == []
+    assert ctx.revision == 5 and ctx.pending == []
+
+@pytest.mark.asyncio
+async def test_miro_http_boundary_uses_bearer_token_and_redacts_errors(tmp_path):
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={'data': [], 'cursor': None})
+    settings = configuration(tmp_path, True)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        provider = Providers(settings, http)
+        assert await provider.miro('boards/test-board/items?limit=50') == {'data': [], 'cursor': None}
+    assert calls[0].url == 'https://api.miro.com/v2/boards/test-board/items?limit=50'
+    assert calls[0].headers['authorization'] == 'Bearer test-miro-secret'
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(401, text='sensitive-provider-body'))) as http:
+        with pytest.raises(AppError) as error:
+            await Providers(settings, http).miro('boards/test-board')
+    assert error.value.status == 502
+    assert 'sensitive-provider-body' not in error.value.message
+
+def test_live_miro_sync_route_calls_miro_gemini_and_supabase(tmp_path):
+    calls = []
+    workspace = {'sources': [], 'plans': [], 'activity': [], 'chunks': []}
+    def upstream(request):
+        calls.append(request)
+        if request.url.path == '/auth/v1/user':
+            return httpx.Response(200, json={'id': 'a2c13a5b-dfd4-4531-94c0-3f460909ed8f', 'email': 'research@example.com'})
+        if request.url.path == '/rest/v1/workspaces':
+            return httpx.Response(200, json=[{'data': workspace, 'revision': 1}])
+        if request.url.path == '/v2/boards/test-board':
+            return httpx.Response(200, json={'name': 'Pilot board'})
+        if request.url.path == '/v2/boards/test-board/items':
+            assert request.url.params['limit'] == '50'
+            return httpx.Response(200, json={'data': [{'id': 'item-1', 'type': 'sticky_note', 'data': {'content': 'Validate the pilot'}}]})
+        if request.url.host == 'generativelanguage.googleapis.com':
+            return httpx.Response(200, json={'embedding': {'values': [0.] * 768}})
+        if request.url.path == '/rest/v1/rpc/save_workspace_sources':
+            body = json.loads(request.content)
+            workspace.update(body['p_data'])
+            assert body['p_sources'][0]['sourceId'] == 'miro-test-board'
+            assert len(body['p_sources'][0]['chunks'][0]['embedding']) == 768
+            return httpx.Response(200, json=2)
+        raise AssertionError(f'Unexpected upstream request: {request.method} {request.url.path}')
+
+    settings = configuration(tmp_path, True)
+    settings.miro_users = {'a2c13a5b-dfd4-4531-94c0-3f460909ed8f'}
+    app = create_app(settings, transport=httpx.MockTransport(upstream))
+    with TestClient(app) as client:
+        response = client.post('/api/sync', headers={'Authorization': 'Bearer user-jwt'}, json={'board': 'test-board'})
+    assert response.status_code == 200, response.text
+    assert response.json()['source']['id'] == 'miro-test-board'
+    assert {call.url.host for call in calls} >= {'api.miro.com', 'generativelanguage.googleapis.com', 'project.supabase.co'}
+    assert all(call.headers['authorization'] == 'Bearer user-jwt' for call in calls if call.url.host == 'project.supabase.co')
+    assert all(call.headers['authorization'] == 'Bearer test-miro-secret' for call in calls if call.url.host == 'api.miro.com')
+
+@pytest.mark.asyncio
 async def test_sync_pagination_incremental_and_allowlists(tmp_path):
     settings = configuration(tmp_path, True)
     provider = AsyncMock()
@@ -166,11 +255,28 @@ async def test_sync_pagination_incremental_and_allowlists(tmp_path):
     assert error.value.status == 403
     with pytest.raises(AppError):
         services.authorize_miro(ctx, 'another-board')
+    provider.miro.side_effect = [{'name': 'Large board'}] + [{'data': [], 'cursor': f'cursor-{i}'} for i in range(10)]
+    with pytest.raises(AppError, match='500-item sync limit'):
+        await services.sync_board(ctx, workspace, 'test-board')
+    provider.miro.side_effect = [{'name': 'Oversized page'}, {'data': [{'id': str(i), 'data': {'content': 'x'}} for i in range(501)]}]
+    with pytest.raises(AppError, match='500-item sync limit'):
+        await services.sync_board(ctx, workspace, 'test-board')
     assert board_id('https://miro.com/app/board/test-board%3D/') == 'test-board='
     for value in ['https://evil.example/board/hello', '../admin', {}, 'http://localhost']:
         with pytest.raises(AppError):
             board_id(value)
     await http.aclose()
+
+@pytest.mark.asyncio
+async def test_source_count_and_total_text_caps(tmp_path):
+    store = Store(configuration(tmp_path), None, None)
+    ctx = Context('local-demo', 'local-demo', 'Research')
+    full = {'sources': [{'id': str(i), 'text': 'x'} for i in range(100)], 'chunks': []}
+    with pytest.raises(AppError, match='source limit'):
+        await store.index(ctx, full, {'id': 'new', 'text': 'new'})
+    large = {'sources': [{'id': 'large', 'text': 'x' * 2_000_000}], 'chunks': []}
+    with pytest.raises(AppError, match='source limit'):
+        await store.index(ctx, large, {'id': 'next', 'text': 'x'})
 
 @pytest.mark.asyncio
 async def test_malformed_model_output_and_citations(tmp_path):
