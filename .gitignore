@@ -22,3 +22,4 @@ test-results/
 # Generated design QA captures
 .impeccable/*review/
 .taste-skill/
+.vercel
