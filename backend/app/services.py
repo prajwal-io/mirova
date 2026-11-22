@@ -3,6 +3,7 @@ import copy
 import html
 import json
 import re
+import time
 from datetime import datetime, timezone, date
 from urllib.parse import quote
 from uuid import uuid4
@@ -225,13 +226,22 @@ class Services:
         self.authorize_miro(ctx, board)
         if plan.get('boardId') and plan['boardId'] != board:
             raise AppError('Resume a partial publication on its original board.')
-        # Durable single-instance journal survives restarts and metadata CAS conflicts.
-        journal_file = self.settings.data_dir / 'publications' / ctx.workspace_id / (str(uuid4()) if not re.fullmatch(r'[\w-]+', plan['id']) else plan['id'])
+        # Live publications keep their journal and lease in Supabase so retries and
+        # concurrent Vercel function instances share one durable source of truth.
+        journal_key = plan['id'] if re.fullmatch(r'[\w-]+', plan['id']) else str(uuid4())
+        journal_file = self.settings.data_dir / 'publications' / ctx.workspace_id / journal_key
         signature = fingerprint(json.dumps(plan['steps'], sort_keys=True))
-        if journal_file.exists():
+        journal = None
+        if self.settings.live:
+            latest = await self.store.read(ctx)
+            journal = latest.get('_publicationJournals', {}).get(journal_key)
+        elif journal_file.exists():
             journal = json.loads(journal_file.read_text(encoding='utf8'))
+        if journal:
             if journal.get('boardId') != board or journal.get('signature') != signature:
                 raise AppError('Publication journal differs from this draft. Inspect the board before continuing.', 409)
+            if self.settings.live and journal.get('leaseUntil', 0) > time.time():
+                raise AppError('This plan is already being published. Wait before retrying.', 409)
             if journal.get('uncertain'):
                 raise AppError('A previous Miro write has an uncertain outcome. Inspect and reconcile the board before retrying.', 409)
             plan['publishedItemIds'], plan['publishedConnectorIds'] = journal['items'], journal['connectors']
@@ -239,14 +249,24 @@ class Services:
         plan.setdefault('publishedItemIds', [])
         plan.setdefault('publishedConnectorIds', [])
         journal = {'boardId': board, 'signature': signature, 'items': plan['publishedItemIds'], 'connectors': plan['publishedConnectorIds'], 'uncertain': False}
+        lease_token = str(uuid4())
 
-        async def persist():
-            self.store.atomic_json(journal_file, journal)
+        async def persist(release=False):
             for attempt in range(3):
                 latest = await self.store.read(ctx)
                 saved = next((p for p in latest['plans'] if p['id'] == plan['id']), None)
                 if not saved or fingerprint(json.dumps(saved['steps'], sort_keys=True)) != signature:
                     raise AppError('Draft changed during publishing. Inspect the board before continuing.', 409)
+                if self.settings.live:
+                    journals = latest.setdefault('_publicationJournals', {})
+                    current = journals.get(journal_key)
+                    if current and current.get('leaseToken') != lease_token and current.get('leaseUntil', 0) > time.time():
+                        raise AppError('This plan is already being published. Wait before retrying.', 409)
+                    journal['leaseToken'] = None if release else lease_token
+                    journal['leaseUntil'] = 0 if release else time.time() + 300
+                    journals[journal_key] = copy.deepcopy(journal)
+                else:
+                    self.store.atomic_json(journal_file, journal)
                 saved.update(copy.deepcopy(plan))
                 try:
                     await self.store.write(ctx, latest)
@@ -256,16 +276,17 @@ class Services:
                         raise
         async def create(path, body):
             journal['uncertain'] = True
-            self.store.atomic_json(journal_file, journal)
+            await persist()
             try:
                 result = await self.providers.miro(path, 'POST', body)
             except AppError as error:
                 if getattr(error, 'confirmed_rejection', False):
                     journal['uncertain'] = False
-                    self.store.atomic_json(journal_file, journal)
+                await persist(release=True)
                 # The journal intentionally blocks a blind repeat of an uncertain write.
                 raise
             if not isinstance(result.get('id'), str):
+                await persist(release=True)
                 raise AppError('Miro did not acknowledge an item ID. Inspect the board before retrying.', 502)
             journal['uncertain'] = False
             return result['id']
@@ -280,5 +301,5 @@ class Services:
             plan['publishedConnectorIds'].append(connector)
             await persist()
         plan['status'] = 'published'
-        await persist()
+        await persist(release=True)
         return plan

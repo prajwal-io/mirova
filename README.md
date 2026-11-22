@@ -71,14 +71,17 @@ You need Node.js 24 and Python 3.12.
 
    Open [http://localhost:3000](http://localhost:3000). For the isolated demo, run `npm run dev:demo` and open [http://localhost:3001](http://localhost:3001).
 
-## Production deployment
+## Production deployment (Vercel)
 
-The production Compose stack runs one FastAPI worker and one backend replica. Keep it at one replica: publication recovery and request limits currently use process-local coordination. The frontend listens only on loopback, so put it behind a TLS reverse proxy or HTTPS load balancer.
+Deploy this repository as two Vercel projects: the frontend uses the repository root; the FastAPI project uses `backend/` as its root directory. The backend entrypoint and runtime dependencies are configured in `backend/pyproject.toml`, `backend/requirements.txt`, and `backend/.python-version`.
 
-1. Set production credentials and the Miro user/board allowlists in `backend/.env`. Set `APP_MODE=live` and `APP_ENV=production` there.
-2. Copy `.env.production.example` to the repository root as `.env` and replace the placeholder with the exact public HTTPS origin (for example, `https://mirova.example.com`). Compose fails closed if this value is missing.
-3. In Supabase Auth settings, enable leaked-password protection and configure production site/redirect URLs. For production email sign-up and password recovery, configure custom SMTP.
-4. Put a TLS reverse proxy in front of `127.0.0.1:3000`, then start the services with `docker compose up -d --build`.
-5. Verify `https://your-domain/api/health`, sign-in, workspace isolation, Miro read access, and an approved test publication before inviting users.
+1. Deploy the backend project first and copy its stable HTTPS deployment URL.
+2. Add these server-only variables to the backend Vercel project for Production and Preview: `APP_MODE=live`, `APP_ENV=production`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `GEMINI_API_KEY`, `MIRO_ACCESS_TOKEN`, `MIRO_ALLOWED_USER_IDS`, `MIRO_ALLOWED_BOARD_IDS`, and `ALLOWED_ORIGINS`. Set `ALLOWED_ORIGINS` to the exact frontend HTTPS origin(s). Do not add provider secrets to the frontend project.
+3. Set frontend project variable `BACKEND_URL` to the deployed backend HTTPS URL, then redeploy the frontend. The Next.js rewrite proxies `/api/*` to FastAPI.
+4. In the Vercel Firewall, configure an IP-based rate-limit rule for `/api/*` (at least 600 requests per IP per minute). The backend enforces the additional shared per-user limit through Supabase.
+5. In Supabase Auth settings, enable leaked-password protection, configure the frontend production URL and redirect URLs, and configure custom SMTP before enabling public email sign-up.
+6. Verify `/api/health`, sign-in, workspace isolation, Miro read access, and an approved test publication on the deployed HTTPS URL before inviting users.
 
-Do not expose port 3000 directly to the public internet. Do not scale the backend beyond one replica until rate limits and publication coordination are moved to shared infrastructure.
+The backend stores publication recovery journals in the user's Supabase workspace record with compare-and-swap writes, so concurrent Vercel instances cannot blindly publish the same plan twice. Uncertain Miro write outcomes remain blocked for manual reconciliation.
+
+For self-hosting, use the existing Docker Compose setup. Its backend must remain a single replica unless the deployment uses the same shared Supabase coordination configured for Vercel.

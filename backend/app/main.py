@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -102,14 +103,20 @@ def create_app(settings=None, transport=None):
         store, services = app.state.store, app.state.services
         if settings.environment == 'production' and path in {'docs', 'openapi.json'}:
             raise AppError('Not found', 404)
-        # No trust in X-Forwarded-For from arbitrary clients. Public edge should also limit auth attempts.
-        rate('ip:' + (request.client.host if request.client else 'unknown'), 600)
+        # Vercel's instances are ephemeral and may scale horizontally. Its WAF must
+        # apply the IP-level rule; the per-user limit below is shared via Supabase.
+        if not os.getenv('VERCEL'):
+            rate('ip:' + (request.client.host if request.client else 'unknown'), 600)
         ctx = await store.context(request)
-        rate('user:' + ctx.user_id, 120)
+        if settings.live:
+            if not await store.consume_api_rate_limit(ctx):
+                raise AppError('Too many requests. Try again in a minute.', 429)
+        else:
+            rate('user:' + ctx.user_id, 120)
         if request.method == 'GET':
             if path == 'workspace':
                 workspace = await store.read(ctx)
-                return {**{k: v for k, v in workspace.items() if k != 'chunks'}, 'chunkCount': None if settings.live else len(workspace.get('chunks', [])),
+                return {**{k: v for k, v in workspace.items() if k not in {'chunks', '_publicationJournals'}}, 'chunkCount': None if settings.live else len(workspace.get('chunks', [])),
                     'mode': settings.mode, 'workspaceId': ctx.workspace_id, 'userId': ctx.user_id, 'userLabel': ctx.label,
                     'insightsStale': bool(workspace.get('insights') and workspace['insights']['fingerprint'] != source_fingerprint(workspace))}
             if path == 'team':

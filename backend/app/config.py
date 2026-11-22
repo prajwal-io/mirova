@@ -9,7 +9,7 @@ load_dotenv(ROOT / 'backend' / '.env')
 @dataclass
 class Settings:
     mode: str = field(default_factory=lambda: os.getenv('APP_MODE', 'live'))
-    environment: str = field(default_factory=lambda: os.getenv('APP_ENV', 'development'))
+    environment: str = field(default_factory=lambda: os.getenv('APP_ENV', 'production' if os.getenv('VERCEL') else 'development'))
     supabase_url: str = field(default_factory=lambda: os.getenv('SUPABASE_URL', '').rstrip('/'))
     supabase_key: str = field(default_factory=lambda: os.getenv('SUPABASE_PUBLISHABLE_KEY', ''))
     gemini_key: str = field(default_factory=lambda: os.getenv('GEMINI_API_KEY', ''))

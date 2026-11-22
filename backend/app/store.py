@@ -56,6 +56,11 @@ class Store:
             raise AppError('Database operation failed. Check the schema and permissions.', 502)
         return response.json() if response.content else None
 
+    async def consume_api_rate_limit(self, ctx, maximum=120, window_seconds=60):
+        return await self.db(ctx, 'rest/v1/rpc/consume_api_rate_limit', 'POST', {
+            'p_bucket': 'api', 'p_limit': maximum, 'p_window_seconds': window_seconds,
+        })
+
     async def context(self, request):
         if not self.settings.live:
             return Context('local-demo', 'local-demo', 'Local teammate')

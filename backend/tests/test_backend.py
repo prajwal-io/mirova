@@ -220,6 +220,8 @@ def test_live_miro_sync_route_calls_miro_gemini_and_supabase(tmp_path):
         calls.append(request)
         if request.url.path == '/auth/v1/user':
             return httpx.Response(200, json={'id': 'a2c13a5b-dfd4-4531-94c0-3f460909ed8f', 'email': 'research@example.com'})
+        if request.url.path == '/rest/v1/rpc/consume_api_rate_limit':
+            return httpx.Response(200, json=True)
         if request.url.path == '/rest/v1/workspaces':
             return httpx.Response(200, json=[{'data': workspace, 'revision': 1}])
         if request.url.path == '/v2/boards/test-board':
@@ -359,6 +361,53 @@ async def test_publication_durable_resume_cas_and_uncertain_block(tmp_path):
     with pytest.raises(AppError, match='uncertain outcome'):
         await service.publish(ctx, saved, failing, 'test-board')
     assert provider.miro.await_count == count
+
+@pytest.mark.asyncio
+async def test_publication_lease_blocks_parallel_instance(tmp_path):
+    settings = configuration(tmp_path, True)
+    provider = AsyncMock()
+    store = Store(settings, None, provider)
+    ctx = Context('user', 'user', 'Research')
+    plan = {'id': 'shared-plan', 'status': 'draft', 'steps': valid_steps([
+        {'title': 'Pilot', 'description': 'Validate', 'phase': 'Discover'},
+        {'title': 'Launch', 'description': 'Measure', 'phase': 'Launch'},
+    ])}
+    saved = {'sources': [], 'plans': [copy.deepcopy(plan)], 'chunks': []}
+    store.read = AsyncMock(side_effect=lambda _: copy.deepcopy(saved))
+    async def write(_, value):
+        saved.clear()
+        saved.update(copy.deepcopy(value))
+    store.write = AsyncMock(side_effect=write)
+    started, finish = asyncio.Event(), asyncio.Event()
+    calls = []
+    async def remote(path, method, body):
+        calls.append(path)
+        started.set()
+        await finish.wait()
+        return {'id': f'item-{len(calls)}'}
+    provider.miro.side_effect = remote
+    first = asyncio.create_task(Services(settings, store, provider).publish(ctx, saved, copy.deepcopy(plan), 'test-board'))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    with pytest.raises(AppError, match='already being published') as error:
+        await Services(settings, store, provider).publish(Context('user', 'user', 'Research'), saved, copy.deepcopy(plan), 'test-board')
+    assert error.value.status == 409
+    assert len(calls) == 1
+    finish.set()
+    await first
+
+@pytest.mark.asyncio
+async def test_shared_rate_limit_calls_authenticated_supabase_rpc():
+    settings = configuration(Path('.'), True)
+    observed = []
+    async def upstream(request):
+        observed.append(request)
+        return httpx.Response(200, json=False)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        store = Store(settings, http, None)
+        assert await store.consume_api_rate_limit(Context('user', 'user', 'Research', 'jwt')) is False
+    assert observed[0].url.path.endswith('/rest/v1/rpc/consume_api_rate_limit')
+    assert observed[0].headers['authorization'] == 'Bearer jwt'
+    assert json.loads(observed[0].content) == {'p_bucket': 'api', 'p_limit': 120, 'p_window_seconds': 60}
 
 @pytest.mark.asyncio
 async def test_per_workspace_lock_does_not_block_other_workspaces(tmp_path):
