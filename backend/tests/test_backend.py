@@ -85,7 +85,6 @@ def test_bounds_origins_validation_and_secrets(client):
     nested = '{"a":' * 6000 + '0' + '}' * 6000
     response = client.post('/api/tasks', content=nested, headers={'Content-Type': 'application/json'})
     assert response.status_code == 400
-    assert response.json() == {'error': 'Invalid JSON request.'}
     assert client.post('/api/sources', json={'title': 'x', 'text': 'a' * 2000001}).status_code == 413
     assert client.post('/api/sync', content='{}').status_code == 415
     config = client.get('/api/config')
@@ -101,6 +100,18 @@ def test_bounds_origins_validation_and_secrets(client):
     production.origins = {'http://localhost:3000'}
     with pytest.raises(RuntimeError, match='ALLOWED_ORIGINS'):
         production.validate()
+
+def test_json_decoder_recursion_error_is_invalid_request(client, monkeypatch):
+    from backend.app import main
+
+    def recurse(_body):
+        raise RecursionError()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(main.json, 'loads', recurse)
+        response = client.post('/api/tasks', content='{}', headers={'Content-Type': 'application/json'})
+    assert response.status_code == 400
+    assert response.json() == {'error': 'Invalid JSON request.'}
 
 def test_grouped_citations_become_clickable_and_unknown_ids_are_rejected():
     assert normalize_citations('Evidence [1, 2] and [3].', 3) == 'Evidence [1] [2] and [3].'
