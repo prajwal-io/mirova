@@ -146,7 +146,7 @@ def create_app(settings=None, transport=None):
             raise AppError('Send an application/json request.', 415)
         try:
             body = json.loads(await bounded(request, 2000000))
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
             raise AppError('Invalid JSON request.') from None
         if not isinstance(body, dict):
             raise AppError('Invalid request.')

@@ -70,3 +70,15 @@ You need Node.js 24 and Python 3.12.
    ```
 
    Open [http://localhost:3000](http://localhost:3000). For the isolated demo, run `npm run dev:demo` and open [http://localhost:3001](http://localhost:3001).
+
+## Production deployment
+
+The production Compose stack runs one FastAPI worker and one backend replica. Keep it at one replica: publication recovery and request limits currently use process-local coordination. The frontend listens only on loopback, so put it behind a TLS reverse proxy or HTTPS load balancer.
+
+1. Set production credentials and the Miro user/board allowlists in `backend/.env`. Set `APP_MODE=live` and `APP_ENV=production` there.
+2. Copy `.env.production.example` to the repository root as `.env` and replace the placeholder with the exact public HTTPS origin (for example, `https://mirova.example.com`). Compose fails closed if this value is missing.
+3. In Supabase Auth settings, enable leaked-password protection and configure production site/redirect URLs. For production email sign-up and password recovery, configure custom SMTP.
+4. Put a TLS reverse proxy in front of `127.0.0.1:3000`, then start the services with `docker compose up -d --build`.
+5. Verify `https://your-domain/api/health`, sign-in, workspace isolation, Miro read access, and an approved test publication before inviting users.
+
+Do not expose port 3000 directly to the public internet. Do not scale the backend beyond one replica until rate limits and publication coordination are moved to shared infrastructure.

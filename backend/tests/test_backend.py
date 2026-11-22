@@ -81,6 +81,11 @@ def test_bounds_origins_validation_and_secrets(client):
     assert client.post('/api/tasks', json={'title': 'Bad date', 'deadline': '2026-02-31'}).status_code == 400
     assert client.post('/api/chat', json={'question': 'What?', 'sourceIds': ['unknown']}).status_code == 400
     assert client.post('/api/chat', content='[' , headers={'Content-Type': 'application/json'}).status_code == 400
+    # Deeply nested JSON makes Python's decoder raise RecursionError instead of ValueError.
+    nested = '{"a":' * 6000 + '0' + '}' * 6000
+    response = client.post('/api/tasks', content=nested, headers={'Content-Type': 'application/json'})
+    assert response.status_code == 400
+    assert response.json() == {'error': 'Invalid JSON request.'}
     assert client.post('/api/sources', json={'title': 'x', 'text': 'a' * 2000001}).status_code == 413
     assert client.post('/api/sync', content='{}').status_code == 415
     config = client.get('/api/config')

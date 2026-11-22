@@ -1,14 +1,15 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
+const base=process.env.E2E_BASE_URL||'http://localhost:3000';
 const testTitle=`Smoke test research ${Date.now()}`;
-async function cleanup(){const response=await fetch('http://localhost:3000/api/workspace');if(!response.ok)return;const workspace=await response.json();for(const source of workspace.sources.filter(s=>s.title===testTitle))await fetch('http://localhost:3000/api/sources/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:source.id})});}
+async function cleanup(){const response=await fetch(`${base}/api/workspace`);if(!response.ok)return;const workspace=await response.json();for(const source of workspace.sources.filter(s=>s.title===testTitle))await fetch(`${base}/api/sources/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:source.id})});}
 await mkdir('test-results',{recursive:true});
 let browser;try{
 browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
-await page.goto('http://localhost:3000');
+await page.goto(base);
 await page.getByText('Product discovery',{exact:true}).first().waitFor();
 await page.screenshot({path:'test-results/desktop.png',fullPage:true});
 assert.equal(await page.locator('body').evaluate(el=>el.scrollWidth>innerWidth),false);
@@ -52,8 +53,8 @@ await page.getByRole('button',{name:'Open navigation',exact:true}).click();
 await page.getByRole('button',{name:'Knowledge library',exact:true}).click();
 assert.equal(await page.locator('body').evaluate(el=>el.scrollWidth>innerWidth),false);
 assert.deepEqual(errors,[]);
-const invalid=await page.request.post('http://localhost:3000/api/sources',{data:{title:'',text:''}});assert.equal(invalid.status(),400);assert.match((await invalid.json()).error,/required/);
-const approval=await page.request.post('http://localhost:3000/api/publish',{data:{approved:false,id:'fake'}});assert.equal(approval.status(),400);assert.match((await approval.json()).error,/approve/);
-const crossOrigin=await page.request.post('http://localhost:3000/api/sources',{headers:{Origin:'https://untrusted.example'},data:{title:'Bad request',text:'Untrusted'}});assert.equal(crossOrigin.status(),400);
+const invalid=await page.request.post(`${base}/api/sources`,{data:{title:'',text:''}});assert.equal(invalid.status(),400);assert.match((await invalid.json()).error,/required/);
+const approval=await page.request.post(`${base}/api/publish`,{data:{approved:false,id:'fake'}});assert.equal(approval.status(),400);assert.match((await approval.json()).error,/approve/);
+const crossOrigin=await page.request.post(`${base}/api/sources`,{headers:{Origin:'https://untrusted.example'},data:{title:'Bad request',text:'Untrusted'}});assert.equal(crossOrigin.status(),403);assert.match((await crossOrigin.json()).error,/Forbidden origin/);
 console.log('PASS import → source inspection → scoped cited answer → editable roadmap → approval gate → local publish; search, mobile navigation, no overflow, no browser exceptions.');
 }finally{await browser?.close();await cleanup();}

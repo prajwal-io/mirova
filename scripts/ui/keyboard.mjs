@@ -2,7 +2,7 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
-await page.goto('http://localhost:3000');await page.getByText('Product discovery',{exact:true}).first().waitFor();
+await page.goto(process.env.FRONTEND_TEST_URL||'http://localhost:3000');await page.getByText('Product discovery',{exact:true}).first().waitFor();
 const help=page.getByRole('button',{name:'Help & getting started'});await help.click();
 await page.waitForFunction(()=>!!document.querySelector('.modal')?.contains(document.activeElement));
 await page.locator('.modal .primary').focus();await page.keyboard.press('Tab');assert.equal(await page.getByRole('button',{name:'Close dialog',exact:true}).evaluate(e=>e===document.activeElement),true);
@@ -10,6 +10,7 @@ await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('.modal .
 await page.keyboard.press('Escape');assert.equal(await help.evaluate(e=>e===document.activeElement),true);
 const board=page.getByRole('button',{name:/^Product discovery/}).first();await board.click();
 await page.waitForFunction(()=>!!document.querySelector('.source-drawer')?.contains(document.activeElement));
-await page.getByRole('button',{name:'Copy source text',exact:true}).focus();await page.keyboard.press('Tab');assert.equal(await page.getByRole('button',{name:'Close source',exact:true}).evaluate(e=>e===document.activeElement),true);
+await page.getByRole('button',{name:'Remove source',exact:true}).focus();await page.keyboard.press('Tab');assert.equal(await page.getByRole('button',{name:'Close source',exact:true}).evaluate(e=>e===document.activeElement),true);
+await page.keyboard.press('Shift+Tab');assert.equal(await page.getByRole('button',{name:'Remove source',exact:true}).evaluate(e=>e===document.activeElement),true);
 await page.keyboard.press('Escape');assert.equal(await board.evaluate(e=>e===document.activeElement),true);
 await browser.close();console.log('PASS modal and source inspector focus containment, reverse navigation, Escape, and focus restoration.');
